@@ -175,6 +175,7 @@ def install_haibu():
     with cd('/home/cozy/cozy-setup'):
         cozydo('HOME=/home/cozy npm install')
         sudo('cp paas.conf /etc/init/')
+        sudo('cp config.json /home/cozy/cozy-setup/node_modules/haibu/config')
 
     if not service.is_running("paas"):
         service.start('paas')

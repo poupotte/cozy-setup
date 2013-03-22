@@ -1,0 +1,11 @@
+{
+  "useraccounts": true,
+  "coffee": true,
+  "directories": {
+    "apps": "/usr/local/cozy",
+    "autostart": "/home/cozy/cozy-setup/node_modules/haibu/autostart",
+    "config": "/home/cozy/cozy-setup/node_modules/haibu/config",
+    "packages": "/home/cozy/cozy-setup/node_modules/haibu/packages",
+    "tmp": "/home/cozy/cozy-setup/node_modules/haibu/tmp"
+  	}
+}
