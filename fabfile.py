@@ -533,33 +533,6 @@ from fabtools.service import reload as reload_service
 @task
 def site(server_name, template_contents=None, template_source=None,
          enabled=True, check_config=True, **kwargs):
-    """
-    Require an nginx site.
-
-    You must provide a template for the site configuration, either as a
-    string (*template_contents*) or as the path to a local template
-    file (*template_source*).
-
-    ::
-
-    from fabtools import require
-
-    CONFIG_TPL = '''
-    server {
-    listen %(port)d;
-    server_name %(server_name)s %(server_alias)s;
-    root %(docroot)s;
-    access_log /var/log/nginx/%(server_name)s.log;
-    }'''
-
-    require.nginx.site('example.com', template_contents=CONFIG_TPL,
-    port=80,
-    server_alias='www.example.com',
-    docroot='/var/www/mysite',
-    )
-
-    .. seealso:: :py:func:`fabtools.require.files.template_file`
-    """
 
     config_filename = '/etc/nginx/sites-available/%s.conf' % server_name
 
