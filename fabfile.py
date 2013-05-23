@@ -1,4 +1,4 @@
-from fabric.api import run, sudo, cd, prompt, task
+from fabric.api import run, sudo, cd, prompt, task, settings, abort
 from fabtools import require, python, supervisor, deb, system
 from fabtools.require import file as require_file
 from fabric.contrib import files
@@ -509,6 +509,9 @@ server {
     ssl_ciphers  ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv3:+EXP;
     ssl_prefer_server_ciphers   on;
     ssl on;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
 
     gzip_vary on;
 
@@ -523,21 +526,130 @@ server {
 }
 """
 
+from fabtools.files import is_link
+from fabtools.utils import run_as_root
+from fabtools.service import reload as reload_service
+
+@task
+def site(server_name, template_contents=None, template_source=None,
+         enabled=True, check_config=True, **kwargs):
+    """
+    Require an nginx site.
+
+    You must provide a template for the site configuration, either as a
+    string (*template_contents*) or as the path to a local template
+    file (*template_source*).
+
+    ::
+
+    from fabtools import require
+
+    CONFIG_TPL = '''
+    server {
+    listen %(port)d;
+    server_name %(server_name)s %(server_alias)s;
+    root %(docroot)s;
+    access_log /var/log/nginx/%(server_name)s.log;
+    }'''
+
+    require.nginx.site('example.com', template_contents=CONFIG_TPL,
+    port=80,
+    server_alias='www.example.com',
+    docroot='/var/www/mysite',
+    )
+
+    .. seealso:: :py:func:`fabtools.require.files.template_file`
+    """
+
+    config_filename = '/etc/nginx/sites-available/%s.conf' % server_name
+
+    context = {
+        'port': 80,
+    }
+    context.update(kwargs)
+    context['server_name'] = server_name
+
+    sudo('mkdir -p /etc/nginx')
+    sudo('mkdir -p /etc/nginx/sites-available')
+    sudo('mkdir -p /etc/nginx/sites-enabled')
+    require.files.template_file(config_filename, template_contents, template_source, context, use_sudo=True)
+
+    link_filename = '/etc/nginx/sites-enabled/%s.conf' % server_name
+    if enabled:
+        if not is_link(link_filename):
+            run_as_root("ln -s %(config_filename)s %(link_filename)s" % locals())
+        # Make sure we don't break the config
+        if check_config:
+            with settings(hide('running', 'warnings'), warn_only=True):
+                if run_as_root("nginx -t").return_code > 0:
+                    run_as_root("rm %(link_filename)s" % locals())
+                    message = red("Error in %(server_name)s nginx site config (disabling for safety)" % locals())
+                    abort(message)
+    else:
+        if is_link(link_filename):
+            run_as_root("rm %(link_filename)s" % locals())
+
+    run('wget -O init-deb.sh http://library.linode.com/assets/660-init-deb.sh')
+    sudo('mv init-deb.sh /etc/init.d/nginx')
+    sudo('chmod +x /etc/init.d/nginx')
+    sudo('/usr/sbin/update-rc.d -f nginx defaults')
+    reload_service('nginx')
 
 @task
 def install_nginx():
     """
     Install NGINX and make it use certs.
     """
-    require.deb.package("nginx")
-    require.nginx.site("cozy",
+    require.deb.packages([
+        'libpcre3',
+        'libpcre3-dev',
+        'libssl-dev',
+        'build-essential',
+        'libgd2-xpm-dev'
+    ])
+    require_file(url='http://nginx.org/download/nginx-1.4.1.tar.gz')
+    run('tar -xzvf nginx-1.4.1.tar.gz')
+    with cd('nginx-1.4.1'):
+        run('./configure --prefix=/etc/nginx ' +
+            '--conf-path=/etc/nginx/nginx.conf ' +
+            '--sbin-path=/usr/sbin/nginx ' +
+            '--error-log-path=/var/log/nginx/error.log ' +
+            '--http-client-body-temp-path=/var/lib/nginx/body ' +
+            '--http-fastcgi-temp-path=/var/lib/nginx/fastcgi ' +
+            '--http-log-path=/var/log/nginx/access.log ' +
+            '--http-proxy-temp-path=/var/lib/nginx/proxy ' +
+            '--http-scgi-temp-path=/var/lib/nginx/scgi ' +
+            '--http-uwsgi-temp-path=/var/lib/nginx/uwsgi ' +
+            '--lock-path=/var/lock/nginx.lock ' +
+            '--pid-path=/var/run/nginx.pid ' + 
+            '--with-debug --with-http_addition_module ' +
+            '--with-http_dav_module ' +
+            #'--with-http_geoip_module ' +
+            '--with-http_gzip_static_module ' + 
+            '--with-http_image_filter_module ' +
+            '--with-http_realip_module ' +
+            '--with-http_stub_status_module ' +
+            '--with-http_ssl_module ' +
+            '--with-http_sub_module ' +
+            '--with-http_xslt_module ' +
+            '--with-ipv6 ' + 
+            '--with-sha1=/usr/include/openssl ' +
+            '--with-md5=/usr/include/openssl ' +
+            '--with-mail ' +
+            '--with-mail_ssl_module ' 
+            )
+        run('make')   
+        sudo('make install')
+    run('rm -rf nginx-1.4.1')
+    run('rm -rf nginx-1.4.1.tar.gz')
+
+    site("cozy",
         template_contents=PROXIED_SITE_TEMPLATE,
         enabled=True,
         port=443,
         proxy_url='http://127.0.0.1:9104'
     )
     print(green("Nginx successfully installed."))
-
 
 ## No setup tasks
 
